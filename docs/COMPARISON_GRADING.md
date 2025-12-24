@@ -32,25 +32,24 @@ Displays two key metrics for each response:
 
 ---
 
-### 2. **Semantic Similarity & Highlighting** (Optional)
+### 2. **Response Evaluation & Highlight Analysis**
 
-Uses Ollama's embedding model (`nomic-embed-text`) to compare responses based on **meaning, not words**.
+Uses `llama3.2:3b` to evaluate responses and analyze similarities/differences.
 
 **How it works:**
-1. Split each response into semantic chunks (3 sentences each)
-2. Generate embeddings for each chunk
-3. Compare chunks across all responses using cosine similarity
-4. Highlight text with 2 grey shades:
-   - **Light grey (#f5f5f5)**: Common concepts shared with other models
-   - **Dark grey (#e5e5e5)**: Unique concepts only this model mentioned
+1. **Automatic evaluation**: Triggers when all model responses complete
+2. **Readability assessment**: Classifies as easy/medium/difficult/technical
+3. **Parameter scoring**: Scores accuracy, padding, completeness, clarity, relevance (1-4 scale)
+4. **Difference analysis**: Identifies topics covered in other responses but missing here
+5. **Highlight analysis** (on-demand): Uses LLM to identify similar vs different sentences
 
-**Note**: Currently disabled by default due to performance considerations. Can be enabled in `comparison-view.tsx`.
+**Note**: All analysis uses llama3.2:3b - no embeddings or vector models required.
 
 ---
 
-### 3. **LLM-Based Grading** (Penalty System)
+### 3. **LLM-Based Evaluation** (Current System)
 
-Uses a local Llama 3B model to grade responses on a **10-point scale** with penalty-based scoring.
+Uses `llama3.2:3b` to evaluate responses with structured scoring and analysis.
 
 #### Grading Categories
 
@@ -97,16 +96,13 @@ All components follow the app's grayscale theme:
 ```
 src/
 ├── lib/utils/
-│   ├── text-analysis.ts         # Readability & lexical diversity
-│   ├── semantic-similarity.ts   # Embeddings & cosine similarity
-│   └── llm-grading.ts          # LLM-based grading system
+│   └── response-evaluation.ts   # LLM-based evaluation using llama3.2:3b
 ├── components/comparison/
-│   ├── complexity-metrics.tsx   # Metrics display component
-│   ├── grading-display.tsx     # Grading display component
-│   ├── highlighted-content.tsx # Semantic highlighting (optional)
-│   └── comparison-view.tsx     # Main comparison view (updated)
+│   ├── evaluation-display.tsx   # Evaluation results display
+│   ├── highlighted-content.tsx # Sentence-level highlighting (on-demand)
+│   └── comparison-view.tsx      # Main comparison view
 └── hooks/
-    └── use-response-analysis.ts # Hook for managing analysis
+    └── use-response-evaluation.ts # Hook for managing evaluation
 ```
 
 ---
@@ -118,26 +114,23 @@ src/
 The system is automatically integrated into the comparison view. No manual configuration required.
 
 ```tsx
-// Automatically analyzes responses in TurnView
-const analyses = useMultiResponseAnalysis(
-  responses,
-  userQuestion,
-  {
-    enableSemanticAnalysis: false, // Disabled by default
-    enableGrading: true,           // Enabled by default
-    gradingModel: "llama3.2:3b",
-  }
-);
+// Automatically evaluates responses in TurnView
+const {
+  evaluations,
+  highlightAnalyses,
+  // ...
+} = useResponseEvaluation(turn.userMessage.content, responsesMap, {
+  autoEvaluate: true,
+  evalModel: "llama3.2:3b",  // Evaluation model
+});
 ```
 
 ### Configuration Options
 
 ```tsx
-interface UseResponseAnalysisOptions {
-  enableSemanticAnalysis?: boolean;  // Enable/disable highlighting
-  enableGrading?: boolean;           // Enable/disable LLM grading
-  gradingModel?: string;             // Model for grading (default: llama3.2:3b)
-  embeddingModel?: string;           // Model for embeddings (default: nomic-embed-text)
+interface UseResponseEvaluationOptions {
+  autoEvaluate?: boolean;  // Auto-trigger when responses complete (default: true)
+  evalModel?: string;      // Model for evaluation (default: llama3.2:3b)
 }
 ```
 
@@ -145,19 +138,17 @@ interface UseResponseAnalysisOptions {
 
 ## Performance Considerations
 
-### Fast Operations (< 100ms)
-- ✅ Complexity metrics (readability, lexical diversity)
-- ✅ Word/sentence counting
-
-### Moderate Operations (1-3s)
-- ⚠️ Semantic similarity analysis (requires embeddings API calls)
-- ⚠️ LLM grading (requires LLM inference)
+### Performance
+- **Automatic evaluation**: Triggers when all responses complete
+- **Parallel processing**: All responses evaluated simultaneously
+- **Caching**: Results cached to prevent re-evaluation
+- **Evaluation time**: ~10-20 seconds per model (depends on llama3.2:3b speed)
 
 ### Optimization Tips
-1. **Disable semantic analysis** if not needed (currently default)
-2. **Use smaller grading model** (e.g., `llama3.2:1b` instead of `3b`)
-3. **Batch analysis** runs in parallel for multiple responses
-4. **Analysis caching** prevents re-analysis on re-render
+1. **Evaluation runs automatically** - no manual trigger needed
+2. **Results are cached** - won't re-evaluate same responses
+3. **Parallel evaluation** - all models evaluated at once
+4. **Use smaller model** if needed (e.g., `llama3.2:1b` instead of `3b`)
 
 ---
 
@@ -172,14 +163,14 @@ interface UseResponseAnalysisOptions {
 
 ### Ollama Models Required
 
-- **For grading**: `llama3.2:3b` (or any chat model)
-- **For semantic analysis**: `nomic-embed-text` (embedding model)
+- **For evaluation**: `llama3.2:3b` (or any chat model)
 
 Install with:
 ```bash
 ollama pull llama3.2:3b
-ollama pull nomic-embed-text
 ```
+
+**Note**: No embedding models are required. All analysis uses llama3.2:3b.
 
 ---
 
@@ -194,22 +185,40 @@ const metrics = calculateComplexityMetrics(text);
 // Returns: { readability, lexicalDiversity, wordCount, ... }
 ```
 
-### Semantic Similarity
+### Response Evaluation
 
 ```typescript
-import { compareTextSemantics } from "@/lib/utils/semantic-similarity";
+import { evaluateResponse } from "@/lib/utils/response-evaluation";
 
-const similarity = await compareTextSemantics(text1, text2);
-// Returns: 0-1 (cosine similarity normalized)
+const evaluation = await evaluateResponse({
+  userQuestion: "What is React?",
+  currentResponse: "React is a JavaScript library...",
+  currentModel: "llama3.1:8b",
+  otherResponses: [/* other model responses */]
+}, "llama3.2:3b");
+
+// Returns: {
+//   readability: "medium",
+//   parameterScores: { accuracy: 3, padding: 4, ... },
+//   finalScore: 3.2,
+//   differenceAnalysis: { missingTopics: [...], summary: "..." }
+// }
 ```
 
-### LLM Grading
+### Highlight Analysis
 
 ```typescript
-import { gradeResponse } from "@/lib/utils/llm-grading";
+import { analyzeHighlights } from "@/lib/utils/response-evaluation";
 
-const grading = await gradeResponse(question, response, "llama3.2:3b");
-// Returns: { finalScore, penalties, label }
+const analysis = await analyzeHighlights({
+  responses: [/* all responses */],
+  targetModel: "llama3.1:8b"
+}, "llama3.2:3b");
+
+// Returns: {
+//   similarSentences: ["sentence1", ...],
+//   differentSentences: ["sentence2", ...]
+// }
 ```
 
 ---
@@ -225,24 +234,25 @@ const grading = await gradeResponse(question, response, "llama3.2:3b");
 - [ ] Response time tracking (speed comparison)
 
 ### Performance Optimizations
-- [ ] WebWorker for text analysis (offload from main thread)
-- [ ] Local embedding model using ONNX Runtime
-- [ ] Caching of embeddings in IndexedDB
-- [ ] Streaming grading (show partial results)
+- [ ] WebWorker for evaluation (offload from main thread)
+- [ ] Streaming evaluation (show partial results as they complete)
+- [ ] Evaluation result caching in IndexedDB
+- [ ] Batch evaluation optimization
 
 ---
 
 ## Troubleshooting
 
-### Grading Not Working
+### Evaluation Not Working
 - Ensure `llama3.2:3b` is installed (`ollama list`)
 - Check Ollama is running (`ollama ps`)
 - Verify API connection in browser console
+- Check browser console for evaluation logs
 
 ### Slow Performance
-- Disable semantic analysis (currently disabled by default)
-- Use smaller grading model (`llama3.2:1b`)
+- Use smaller evaluation model (`llama3.2:1b` instead of `3b`)
 - Reduce number of models being compared
+- Evaluation runs automatically - no manual trigger needed
 
 ### Incorrect Readability Scores
 - Readability scores work best for English text
@@ -253,8 +263,6 @@ const grading = await gradeResponse(question, response, "llama3.2:3b");
 
 ## Credits
 
-- **Flesch Reading Ease**: Rudolf Flesch (1948)
-- **Lexical Diversity**: Type-Token Ratio method
-- **Embeddings**: `nomic-embed-text` via Ollama
-- **Grading Model**: `llama3.2:3b` via Ollama
+- **Evaluation Model**: `llama3.2:3b` via Ollama
+- **System**: Simplified LLM-based evaluation (no embeddings required)
 

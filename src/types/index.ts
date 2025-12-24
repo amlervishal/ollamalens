@@ -24,6 +24,8 @@ export interface Message {
   attachments?: Attachment[]; // for user messages with images/files
   createdAt: number;
   orderIndex: number; // message order in conversation
+  evaluation?: ResponseEvaluation; // Evaluation results for assistant messages
+  highlightAnalysis?: HighlightAnalysis; // Highlight analysis for assistant messages
 }
 
 export interface UserSettings {
@@ -102,5 +104,51 @@ export interface ChatMessage {
   content: string;
   model?: string;
   timestamp: number;
+}
+
+// Evaluation types
+export type ReadabilityLevel = "easy" | "medium" | "difficult" | "technical";
+
+export interface ParameterScores {
+  accuracy: number; // 1-4
+  padding: number; // 1-4
+  completeness: number; // 1-4
+  clarity: number; // 1-4
+  relevance: number; // 1-4
+}
+
+export interface DifferenceAnalysis {
+  missingTopics: string[]; // Topics covered in other responses but not this one
+  summary: string; // Summary of what was not covered
+}
+
+export interface ResponseEvaluation {
+  readability: ReadabilityLevel;
+  parameterScores: ParameterScores;
+  finalScore: number; // 1-4 (average of parameters)
+  differenceAnalysis: DifferenceAnalysis;
+}
+
+export interface HighlightAnalysis {
+  similarSentences: string[]; // Sentences that match semantically across responses
+  differentSentences: string[]; // Sentences unique to this response
+}
+
+export interface EvaluationRequest {
+  userQuestion: string;
+  currentResponse: string;
+  currentModel: string;
+  otherResponses: Array<{
+    model: string;
+    content: string;
+  }>;
+}
+
+export interface HighlightRequest {
+  responses: Array<{
+    model: string;
+    content: string;
+  }>;
+  targetModel: string; // Model to analyze highlights for
 }
 

@@ -16,6 +16,39 @@ export function useSendMessage() {
   const { createChat } = useChats();
   const { addMessage: saveMessage } = useChatMessages(currentChatId);
 
+  // Wait for all responses to be marked as done in the store
+  const waitForAllResponsesDone = async (models: string[], maxWaitMs: number = 2000): Promise<boolean> => {
+    const startTime = Date.now();
+    while (Date.now() - startTime < maxWaitMs) {
+      // Access store state directly (not reactive)
+      const storeState = useChatStore.getState();
+      const allDone = models.every(model => {
+        const response = storeState.currentResponses[model];
+        return response?.done === true && response?.content?.trim().length > 0;
+      });
+      
+      if (allDone) {
+        console.log(`[SendMessage] ✅ All ${models.length} responses confirmed done in store`);
+        return true;
+      }
+      
+      // Wait a bit before checking again
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    
+    // Final check
+    const finalState = useChatStore.getState();
+    console.warn(`[SendMessage] ⚠️ Timeout waiting for all responses to be done. Status:`, 
+      models.map(m => ({ 
+        model: m, 
+        done: finalState.currentResponses[m]?.done, 
+        hasContent: !!finalState.currentResponses[m]?.content,
+        contentLength: finalState.currentResponses[m]?.content?.length || 0
+      }))
+    );
+    return false;
+  };
+
   // Helper function to stream response from a single model
   const streamModelResponse = async (
     model: string,
@@ -155,12 +188,37 @@ export function useSendMessage() {
       },
     ];
 
-    // Send to all selected models in parallel with streaming
-    const promises = selectedModels.map((model) =>
-      streamModelResponse(model, conversationHistory, chatId!, true)
-    );
-
-    await Promise.all(promises);
+    // Send to models sequentially (one at a time)
+    console.log(`[SendMessage] Starting sequential processing of ${selectedModels.length} model(s)`);
+    
+    for (let i = 0; i < selectedModels.length; i++) {
+      const model = selectedModels[i];
+      const isLastModel = i === selectedModels.length - 1;
+      
+      console.log(`[SendMessage] Starting model ${i + 1}/${selectedModels.length}: ${model}`);
+      
+      try {
+        await streamModelResponse(model, conversationHistory, chatId!, true);
+        console.log(`[SendMessage] Completed model ${i + 1}/${selectedModels.length}: ${model}`);
+        
+        if (isLastModel) {
+          console.log(`[SendMessage] Last model completed. Waiting for all responses to be marked done in store...`);
+          // Wait for store to actually have all responses marked as done: true
+          // This ensures the evaluation hook's useEffect can detect the change
+          const allDone = await waitForAllResponsesDone(selectedModels);
+          if (allDone) {
+            console.log(`[SendMessage] ✅ All responses confirmed done. Evaluation should trigger automatically.`);
+          } else {
+            console.log(`[SendMessage] ⚠️ Some responses may not be marked done yet, but proceeding anyway.`);
+          }
+        }
+      } catch (error) {
+        console.error(`[SendMessage] Error processing model ${model}:`, error);
+        // Continue with next model even if one fails
+      }
+    }
+    
+    console.log(`[SendMessage] All models processed. Setting loading to false.`);
     setLoading(false);
   };
 

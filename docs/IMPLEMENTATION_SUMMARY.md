@@ -27,11 +27,14 @@
 
 ---
 
-### 3. **Semantic Similarity Analysis** (Optional)
-- **Embedding-based comparison**: Uses `nomic-embed-text`
-- **Chunk-level analysis**: Compares meaning, not words
-- **Highlighting**: Two grey shades for unique vs common concepts
-- **Status**: Disabled by default (can be enabled for performance)
+### 3. **Response Evaluation & Highlight Analysis** (Current Implementation)
+- **LLM-based evaluation**: Uses `llama3.2:3b` for all analysis
+- **Automatic evaluation**: Triggers when all model responses complete
+- **Readability assessment**: easy/medium/difficult/technical
+- **Parameter scoring**: accuracy, padding, completeness, clarity, relevance (1-4 scale)
+- **Difference analysis**: Identifies missing topics compared to other responses
+- **Highlight analysis**: Sentence-level similarity/difference detection (on-demand)
+- **Note**: All analysis uses llama3.2:3b - no embeddings/vectors required
 
 ---
 
@@ -40,23 +43,20 @@
 ### Core Utilities
 ```
 src/lib/utils/
-├── text-analysis.ts         (Readability & lexical diversity)
-├── semantic-similarity.ts   (Embeddings & cosine similarity)
-└── llm-grading.ts          (LLM grading with penalty system)
+└── response-evaluation.ts   (LLM-based evaluation using llama3.2:3b)
 ```
 
 ### UI Components
 ```
 src/components/comparison/
-├── complexity-metrics.tsx   (Metrics display)
-├── grading-display.tsx     (Grading with expandable details)
-└── highlighted-content.tsx (Semantic highlighting - optional)
+├── evaluation-display.tsx   (Evaluation results display)
+└── highlighted-content.tsx   (Sentence-level highlighting - on-demand)
 ```
 
 ### Hooks
 ```
 src/hooks/
-└── use-response-analysis.ts (Manages all analysis operations)
+└── use-response-evaluation.ts (Manages evaluation and highlight analysis)
 ```
 
 ### Documentation
@@ -110,19 +110,17 @@ All components follow the app's grayscale theme:
 
 ### Enable/Disable Features
 
-Edit `src/components/comparison/comparison-view.tsx` (line ~280):
+The evaluation system is automatically integrated in `src/components/comparison/comparison-view.tsx`:
 
 ```typescript
-const analyses = useMultiResponseAnalysis(
-  responses,
-  turn.userMessage.content,
-  {
-    enableSemanticAnalysis: false,  // Set to true to enable highlighting
-    enableGrading: true,             // Set to false to disable grading
-    gradingModel: "llama3.2:3b",    // Change grading model
-    embeddingModel: "nomic-embed-text", // Change embedding model
-  }
-);
+const {
+  evaluations,
+  highlightAnalyses,
+  // ...
+} = useResponseEvaluation(turn.userMessage.content, responsesMap, {
+  autoEvaluate: true,
+  evalModel: "llama3.2:3b",  // Change evaluation model if needed
+});
 ```
 
 ---
@@ -138,15 +136,12 @@ const analyses = useMultiResponseAnalysis(
 
 ### Required Ollama Models
 
-**For grading** (required):
+**Required model**:
 ```bash
 ollama pull llama3.2:3b
 ```
 
-**For semantic analysis** (optional, if enabled):
-```bash
-ollama pull nomic-embed-text
-```
+**Note**: The system uses llama3.2:3b for all evaluation and analysis. No embedding models are required.
 
 ---
 
@@ -160,38 +155,32 @@ Just:
 2. Send a message
 3. View responses with metrics and grading
 
-### Manual Analysis (if needed)
+### Manual Evaluation (if needed)
 
 ```typescript
-import { calculateComplexityMetrics } from "@/lib/utils/text-analysis";
-import { gradeResponse } from "@/lib/utils/llm-grading";
+import { evaluateResponse } from "@/lib/utils/response-evaluation";
 
-// Calculate metrics
-const metrics = calculateComplexityMetrics(responseText);
-console.log(metrics.readability.score); // 72
-console.log(metrics.lexicalDiversity);  // 0.68
+const evaluation = await evaluateResponse({
+  userQuestion: "What is React?",
+  currentResponse: "React is a JavaScript library...",
+  currentModel: "llama3.1:8b",
+  otherResponses: [/* other model responses */]
+}, "llama3.2:3b");
 
-// Grade response
-const grading = await gradeResponse(question, response);
-console.log(grading.finalScore); // 8.5
-console.log(grading.label);      // "Excellent"
+console.log(evaluation.readability); // "medium"
+console.log(evaluation.finalScore);  // 3.2
+console.log(evaluation.parameterScores); // { accuracy: 3, ... }
 ```
 
 ---
 
 ## ⚡ Performance
 
-### Fast Operations (< 100ms)
-- ✅ Complexity metrics calculation
-- ✅ UI rendering
-
-### Moderate Operations (1-5s per response)
-- ⚠️ LLM grading (depends on model size)
-- ⚠️ Semantic analysis (if enabled)
-
-### Optimization
-- **Parallel processing**: All responses analyzed simultaneously
-- **Smart caching**: React hooks prevent unnecessary re-analysis
+### Performance
+- **Automatic evaluation**: Triggers when all responses complete
+- **Parallel processing**: All responses evaluated simultaneously
+- **Caching**: Results cached to prevent re-evaluation
+- **Evaluation time**: ~10-20 seconds per model (depends on llama3.2:3b speed)
 - **Disabled by default**: Semantic analysis off for better performance
 
 ---
