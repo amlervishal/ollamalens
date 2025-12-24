@@ -1,0 +1,106 @@
+// Database types
+export interface Chat {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface Attachment {
+  id: string;
+  type: "image" | "file";
+  name: string;
+  data: string; // base64 encoded data for images, file content/URL for files
+  mimeType?: string;
+  size?: number; // in bytes
+}
+
+export interface Message {
+  id: string;
+  chatId: string;
+  role: "user" | "assistant";
+  content: string;
+  model: string | null; // model name if assistant message
+  attachments?: Attachment[]; // for user messages with images/files
+  createdAt: number;
+  orderIndex: number; // message order in conversation
+}
+
+export interface UserSettings {
+  id: string;
+  theme: "light" | "dark" | "system";
+  defaultModels: string[];
+  preferences: Record<string, unknown>;
+}
+
+// Ollama types
+export interface OllamaModel {
+  name: string;
+  modified_at: string;
+  size: number;
+  digest: string;
+  details?: {
+    parent_model?: string;
+    format?: string;
+    family?: string;
+    families?: string[];
+    parameter_size?: string;
+    quantization_level?: string;
+  };
+}
+
+export interface OllamaListResponse {
+  models: OllamaModel[];
+}
+
+export interface OllamaGenerateRequest {
+  model: string;
+  prompt: string;
+  stream?: boolean;
+  images?: string[]; // base64 encoded images
+  context?: number[]; // context array for /api/generate
+  options?: Record<string, unknown>;
+}
+
+export interface OllamaChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+  images?: string[]; // base64 encoded images
+}
+
+export interface OllamaChatRequest {
+  model: string;
+  messages: OllamaChatMessage[];
+  stream?: boolean;
+  options?: Record<string, unknown>;
+}
+
+export interface OllamaGenerateResponse {
+  model: string;
+  created_at: string;
+  response: string;
+  done: boolean;
+  context?: number[];
+  total_duration?: number;
+  load_duration?: number;
+  prompt_eval_count?: number;
+  prompt_eval_duration?: number;
+  eval_count?: number;
+  eval_duration?: number;
+}
+
+// App types
+export interface ModelResponse {
+  model: string;
+  content: string;
+  error?: string;
+  done: boolean;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  model?: string;
+  timestamp: number;
+}
+
