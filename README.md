@@ -37,6 +37,20 @@ In the age of multiple AI models, choosing the right model for your task is chal
 
 ---
 
+## 📸 Screenshots
+
+### Multi-Model Comparison & Evaluation
+
+Compare responses from multiple Ollama models side-by-side with AI-powered evaluation scores:
+
+![OllamaLens Response Comparison](public/response-1.PNG)
+
+Detailed evaluation metrics showing accuracy, completeness, clarity, and more:
+
+![OllamaLens Evaluation Details](public/response-1-contd.PNG)
+
+---
+
 ## 🎯 Use Cases
 
 ### For Individuals
