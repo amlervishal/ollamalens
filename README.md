@@ -163,7 +163,7 @@ In the age of multiple AI models, choosing the right model for your task is chal
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/ollamalens.git
+git clone https://github.com/amlervishal/ollamalens.git
 cd ollamalens
 ```
 
@@ -256,7 +256,7 @@ Install OllamaLens as a standalone app:
 
 ### How to Contribute
 
-1. **Report Issues**: Found a bug or have a feature request? [Open an issue](https://github.com/yourusername/ollamalens/issues)
+1. **Report Issues**: Found a bug or have a feature request? [Open an issue](https://github.com/amlervishal/ollamalens/issues)
 2. **Suggest Improvements**: Have ideas for better UX, new features, or optimizations? We'd love to hear them!
 3. **Submit Pull Requests**: 
    - Fork the repository
@@ -478,9 +478,9 @@ MIT License - see [LICENSE](LICENSE) file for details
 
 ## 🔗 Links
 
-- **GitHub**: [github.com/yourusername/ollamalens](https://github.com/yourusername/ollamalens)
-- **Issues**: [Report bugs or request features](https://github.com/yourusername/ollamalens/issues)
-- **Discussions**: [Join the community](https://github.com/yourusername/ollamalens/discussions)
+- **GitHub**: [github.com/amlervishal/ollamalens](https://github.com/amlervishal/ollamalens)
+- **Issues**: [Report bugs or request features](https://github.com/amlervishal/ollamalens/issues)
+- **Discussions**: [Join the community](https://github.com/amlervishal/ollamalens/discussions)
 - **Ollama**: [ollama.ai](https://ollama.ai/)
 
 ---
@@ -490,8 +490,8 @@ MIT License - see [LICENSE](LICENSE) file for details
 Need help? Have questions?
 
 - 📖 Check the [documentation](docs/)
-- 💬 Start a [discussion](https://github.com/yourusername/ollamalens/discussions)
-- 🐛 Report a [bug](https://github.com/yourusername/ollamalens/issues)
+- 💬 Start a [discussion](https://github.com/amlervishal/ollamalens/discussions)
+- 🐛 Report a [bug](https://github.com/amlervishal/ollamalens/issues)
 - ⭐ Star the project if you find it useful!
 
 ---
