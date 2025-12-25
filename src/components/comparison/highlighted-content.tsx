@@ -15,51 +15,13 @@ export function HighlightedContent({
   highlightAnalysis,
   showHighlights,
 }: HighlightedContentProps) {
-  const highlightedContent = useMemo(() => {
-    if (!showHighlights || !highlightAnalysis) {
-      return null;
-    }
+  // Escape special regex characters
+  const escapeRegex = (str: string): string => {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  };
 
-    // Split content into sentences (simple approach)
-    const sentences = content.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
-
-    // Create a map of sentence indices to highlight types
-    const sentenceHighlights = new Map<number, "similar" | "different" | null>();
-
-    sentences.forEach((sentence, idx) => {
-      const trimmedSentence = sentence.trim();
-      
-      // Check if this sentence is in similar sentences
-      const isSimilar = highlightAnalysis.similarSentences.some(
-        (similar) => {
-          const similarity = calculateSimilarity(trimmedSentence, similar);
-          return similarity > 0.7; // 70% similarity threshold
-        }
-      );
-
-      // Check if this sentence is in different sentences
-      const isDifferent = highlightAnalysis.differentSentences.some(
-        (different) => {
-          const similarity = calculateSimilarity(trimmedSentence, different);
-          return similarity > 0.7;
-        }
-      );
-
-      if (isSimilar && isDifferent) {
-        // Prefer "different" if it appears in both
-        sentenceHighlights.set(idx, "different");
-      } else if (isSimilar) {
-        sentenceHighlights.set(idx, "similar");
-      } else if (isDifferent) {
-        sentenceHighlights.set(idx, "different");
-      }
-    });
-
-    return { sentences, sentenceHighlights };
-  }, [content, highlightAnalysis, showHighlights]);
-
-  // Simple similarity calculation (Levenshtein-based)
-  function calculateSimilarity(str1: string, str2: string): number {
+  // Calculate similarity between two strings
+  const calculateSimilarity = (str1: string, str2: string): number => {
     const longer = str1.length > str2.length ? str1 : str2;
     const shorter = str1.length > str2.length ? str2 : str1;
     
@@ -71,9 +33,9 @@ export function HighlightedContent({
     );
     
     return (longer.length - distance) / longer.length;
-  }
+  };
 
-  function levenshteinDistance(str1: string, str2: string): number {
+  const levenshteinDistance = (str1: string, str2: string): number => {
     const matrix: number[][] = [];
     
     for (let i = 0; i <= str2.length; i++) {
@@ -99,55 +61,102 @@ export function HighlightedContent({
     }
     
     return matrix[str2.length][str1.length];
-  }
+  };
 
-  if (showHighlights && highlightAnalysis && highlightedContent) {
-    // For highlighting, we'll render plain text with highlights
-    // This is simpler than trying to preserve markdown formatting
-    const parts: JSX.Element[] = [];
-    
-    highlightedContent.sentences.forEach((sentence, idx) => {
-      const highlightType = highlightedContent.sentenceHighlights.get(idx);
-      const key = `sentence-${idx}`;
+  // Apply highlights to content while preserving markdown
+  const processedContent = useMemo(() => {
+    if (!showHighlights || !highlightAnalysis) {
+      return content;
+    }
+
+    let result = content;
+    const replacements: Array<{ original: string; replacement: string; type: 'similar' | 'different' }> = [];
+
+    // Find all phrases that need highlighting
+    const allPhrases = [
+      ...highlightAnalysis.similarSentences.map(s => ({ phrase: s, type: 'similar' as const })),
+      ...highlightAnalysis.differentSentences.map(s => ({ phrase: s, type: 'different' as const })),
+    ];
+
+    // For each phrase, find matches in the content using fuzzy matching
+    allPhrases.forEach(({ phrase, type }) => {
+      const trimmedPhrase = phrase.trim();
       
-      if (highlightType === "similar") {
-        parts.push(
-          <span key={key} className="bg-muted/30 px-1 py-0.5 rounded inline-block mb-1">
-            {sentence}
-          </span>
-        );
-      } else if (highlightType === "different") {
-        parts.push(
-          <span key={key} className="bg-muted/50 px-1 py-0.5 rounded inline-block mb-1">
-            {sentence}
-          </span>
-        );
+      // Try exact match first (case-insensitive)
+      const exactRegex = new RegExp(`(${escapeRegex(trimmedPhrase)})`, 'gi');
+      const exactMatches = [...result.matchAll(exactRegex)];
+      
+      if (exactMatches.length > 0) {
+        exactMatches.forEach(match => {
+          if (match[0]) {
+            replacements.push({
+              original: match[0],
+              replacement: match[0],
+              type,
+            });
+          }
+        });
       } else {
-        parts.push(
-          <span key={key} className="inline-block mb-1">
-            {sentence}{" "}
-          </span>
-        );
+        // Try fuzzy matching - look for phrases with high similarity
+        // Split content into potential matches (by sentences/phrases)
+        const contentParts = result.split(/([.!?,;\n])/);
+        
+        contentParts.forEach(part => {
+          const trimmedPart = part.trim();
+          if (trimmedPart.length > 5) { // Only check meaningful parts
+            const similarity = calculateSimilarity(trimmedPart, trimmedPhrase);
+            if (similarity > 0.75) { // 75% similarity threshold
+              replacements.push({
+                original: part,
+                replacement: part,
+                type,
+              });
+            }
+          }
+        });
       }
     });
 
+    // Apply replacements (deduplicate and prioritize 'different' over 'similar')
+    const uniqueReplacements = new Map<string, 'similar' | 'different'>();
+    replacements.forEach(({ original, type }) => {
+      const existing = uniqueReplacements.get(original);
+      if (!existing || (type === 'different' && existing === 'similar')) {
+        uniqueReplacements.set(original, type);
+      }
+    });
+
+    // Sort by length (longest first) to avoid replacing parts of longer matches
+    const sortedReplacements = Array.from(uniqueReplacements.entries())
+      .sort((a, b) => b[0].length - a[0].length);
+
+    // Apply highlights using HTML marks
+    sortedReplacements.forEach(([text, type]) => {
+      const className = type === 'similar' ? 'highlight-similar' : 'highlight-different';
+      const escapedText = escapeRegex(text);
+      const regex = new RegExp(`(${escapedText})`, 'g');
+      result = result.replace(regex, `<mark class="${className}">$1</mark>`);
+    });
+
+    return result;
+  }, [content, highlightAnalysis, showHighlights]);
+
+  if (showHighlights && highlightAnalysis) {
     return (
       <div className="highlighted-content">
         <div className="space-y-2 mb-3 text-xs text-muted-foreground border-b pb-2">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 bg-muted/30 rounded" />
+              <div className="w-3 h-3 bg-blue-200/70 dark:bg-blue-900/50 rounded border border-blue-300 dark:border-blue-800" />
               <span>Similar to other responses</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 bg-muted/50 rounded" />
+              <div className="w-3 h-3 bg-yellow-200/70 dark:bg-yellow-900/50 rounded border border-yellow-300 dark:border-yellow-800" />
               <span>Unique to this response</span>
             </div>
           </div>
         </div>
-        <div className="text-sm leading-relaxed">
-          {parts}
-        </div>
+        <MarkdownRenderer content={processedContent} />
       </div>
     );
   }

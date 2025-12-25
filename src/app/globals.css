@@ -256,3 +256,20 @@
 .dark .markdown-content .hljs-builtin-name {
   color: #79c0ff;
 }
+
+/* Highlight styles for comparison view */
+.highlight-similar {
+  @apply bg-blue-200/70 px-1 py-0.5 rounded;
+}
+
+.dark .highlight-similar {
+  @apply bg-blue-900/50;
+}
+
+.highlight-different {
+  @apply bg-yellow-200/70 px-1 py-0.5 rounded;
+}
+
+.dark .highlight-different {
+  @apply bg-yellow-900/50;
+}

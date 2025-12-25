@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useChatStore } from "@/store/chat-store";
 import { useChatMessages } from "@/hooks/use-chats";
 import { useResponseEvaluation } from "@/hooks/use-response-evaluation";
@@ -16,8 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
   Volume2,
-  Pause,
-  BarChart3
+  Pause
 } from "lucide-react";
 import { MarkdownRenderer } from "@/components/markdown/markdown-renderer";
 import { ModelIcon, ModelTextLogo } from "@/components/model-icons/model-icon";
@@ -72,7 +71,6 @@ interface ResponseCardProps {
   isRegenerating: boolean;
   onCopy: (text: string) => void;
   onRegenerate: (model: string) => void;
-  onEvaluate?: (model: string) => void;
   copiedModel: string | null;
   speakingModel: string | null;
   onSpeak: (text: string, model: string) => void;
@@ -83,9 +81,7 @@ interface ResponseCardProps {
   evaluation?: ResponseEvaluation | null;
   highlightAnalysis?: HighlightAnalysis | null;
   isEvaluating?: boolean;
-  isAnalyzingHighlights?: boolean;
   evaluationError?: string;
-  onHighlightClick?: () => void;
   showHighlights?: boolean;
 }
 
@@ -98,7 +94,6 @@ function ResponseCard({
   isRegenerating,
   onCopy,
   onRegenerate,
-  onEvaluate,
   copiedModel,
   speakingModel,
   onSpeak,
@@ -109,9 +104,7 @@ function ResponseCard({
   evaluation,
   highlightAnalysis,
   isEvaluating,
-  isAnalyzingHighlights,
   evaluationError,
-  onHighlightClick,
   showHighlights = false,
 }: ResponseCardProps) {
   const content = streamingContent || response?.content || "";
@@ -183,8 +176,6 @@ function ResponseCard({
           evaluation={evaluation || null}
           isLoading={isEvaluating}
           error={evaluationError}
-          onHighlightClick={onHighlightClick}
-          isHighlightLoading={isAnalyzingHighlights}
         />
       )}
 
@@ -192,23 +183,7 @@ function ResponseCard({
       {content && !isStreaming && (
         <div className="px-4 py-2 border-t bg-muted/20 shrink-0">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => {
-                  console.log('[ResponseCard] Evaluate button clicked for model:', model);
-                  console.log('[ResponseCard] onEvaluate exists?', !!onEvaluate);
-                  console.log('[ResponseCard] isEvaluating:', isEvaluating);
-                  onEvaluate?.(model);
-                }}
-                disabled={isLoading || isEvaluating}
-                title="Evaluate response"
-              >
-                <BarChart3 className={`h-3.5 w-3.5 mr-1 ${isEvaluating ? 'animate-spin' : ''}`} />
-                {isEvaluating ? 'Evaluating...' : 'Evaluate'}
-              </Button>
+            <div className="flex items-center gap-1 flex-wrap">
               {isSupported && (
                 <Button
                   variant="ghost"
@@ -297,6 +272,13 @@ interface TurnViewProps {
   isSpeaking: boolean;
   isPaused: boolean;
   isSupported: boolean;
+  showHighlights?: boolean;
+  onEvaluationStateChange?: (isEvaluating: boolean) => void;
+  onHighlightStateChange?: (isAnalyzing: boolean) => void;
+  onHasHighlightsChange?: (hasHighlights: boolean) => void;
+  onEvaluationReadyChange?: (isReady: boolean) => void;
+  evaluateAllRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  analyzeAllHighlightsRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 function TurnView({
@@ -315,25 +297,25 @@ function TurnView({
   isSpeaking,
   isPaused,
   isSupported,
+  showHighlights = false,
+  onEvaluationStateChange,
+  onHighlightStateChange,
+  onHasHighlightsChange,
+  onEvaluationReadyChange,
+  evaluateAllRef,
+  analyzeAllHighlightsRef,
 }: TurnViewProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [highlightedModels, setHighlightedModels] = useState<Set<string>>(new Set());
 
   // Create a serialized key from currentResponses to detect when done status changes
   // This ensures responsesMap useMemo recalculates when models complete sequentially
-  // Compute directly from currentResponses each render - React will compare the string value
-  const currentResponsesKey = (() => {
+  const currentResponsesKey = useMemo(() => {
     const entries = Object.entries(currentResponses)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([model, response]) => `${model}:${response.done}:${response.content.length}`);
-    const key = entries.join('|');
-    console.log(`[ComparisonView] 🔑 currentResponsesKey computed:`, {
-      key: key.substring(0, 100) + (key.length > 100 ? '...' : ''),
-      entriesCount: entries.length,
-      allDone: entries.every(e => e.includes(':true:')),
-    });
-    return key;
-  })();
+    return entries.join('|');
+  }, [currentResponses]);
 
   // Build responses map for evaluation hook
   const responsesMap = useMemo(() => {
@@ -376,47 +358,104 @@ function TurnView({
     isEvaluating,
     isAnalyzingHighlights,
     errors,
-    analyzeHighlights: triggerHighlightAnalysis,
-    evaluateResponse: evaluateSingleModel,
+    evaluateAll,
+    analyzeAllHighlights,
+    isEvaluatingAny,
   } = useResponseEvaluation(turn.userMessage.content, responsesMap, {
     autoEvaluate: false,
-    evalModel: "llama3.2:3b",
+    evalModel: "gemma3:4b",
   });
 
-  const handleHighlightClick = (model: string) => {
-    if (highlightedModels.has(model)) {
-      // Toggle off
-      const newSet = new Set(highlightedModels);
-      newSet.delete(model);
-      setHighlightedModels(newSet);
-    } else {
-      // Toggle on and trigger analysis if not already done
-      setHighlightedModels(new Set(highlightedModels).add(model));
-      if (!highlightAnalyses.has(model)) {
-        triggerHighlightAnalysis(model);
-      }
-    }
-  };
+  // Check if all responses are complete (same logic as regenerate button)
+  const allResponsesComplete = useMemo(() => {
+    return selectedModels.every(model => {
+      const savedResponse = turn.responses.get(model);
+      const streamingResponse = isLatestTurn ? currentResponses[model] : null;
+      const content = streamingResponse?.content || savedResponse?.content || "";
+      const isStreaming = isLatestTurn && streamingResponse && !streamingResponse.done;
+      
+      // Show footer when there's content and not streaming (same as regenerate button logic)
+      return content.trim().length > 0 && !isStreaming;
+    });
+  }, [selectedModels, turn.responses, currentResponses, isLatestTurn]);
 
+  // Check if any evaluations exist
+  const hasAnyEvaluation = useMemo(() => {
+    return selectedModels.some(model => evaluations.has(model));
+  }, [selectedModels, evaluations]);
 
-  const handleEvaluateSingle = useCallback(async (model: string) => {
-    console.log("[ComparisonView] 🔘 Evaluate Single button clicked for model:", model);
-    console.log("[ComparisonView] responsesMap:", responsesMap);
-    console.log("[ComparisonView] evaluateSingleModel exists?", !!evaluateSingleModel);
-    const response = responsesMap.get(model);
-    console.log("[ComparisonView] Found response for model:", !!response);
-    if (response) {
-      console.log("[ComparisonView] Response content length:", response.content.length);
-      console.log("[ComparisonView] Response done:", response.done);
+  // Check if any highlights exist
+  const hasAnyHighlights = useMemo(() => {
+    return selectedModels.some(model => highlightAnalyses.has(model));
+  }, [selectedModels, highlightAnalyses]);
+
+  // Keep refs to latest functions to avoid stale closures
+  const evaluateAllLatestRef = useRef(evaluateAll);
+  const analyzeAllHighlightsLatestRef = useRef(analyzeAllHighlights);
+  const selectedModelsLatestRef = useRef(selectedModels);
+  
+  useEffect(() => {
+    evaluateAllLatestRef.current = evaluateAll;
+    analyzeAllHighlightsLatestRef.current = analyzeAllHighlights;
+    selectedModelsLatestRef.current = selectedModels;
+  });
+  
+  // Expose evaluation functions to parent via refs and notify when ready
+  const hasResponses = responsesMap.size > 0;
+  const readyStateRef = useRef(false);
+  
+  useEffect(() => {
+    if (evaluateAllRef && hasResponses) {
+      evaluateAllRef.current = async () => {
+        await evaluateAllLatestRef.current();
+      };
+    } else if (evaluateAllRef) {
+      evaluateAllRef.current = null;
     }
-    if (response && evaluateSingleModel) {
-      console.log("[ComparisonView] Calling evaluateSingleModel...");
-      await evaluateSingleModel(model, response.content);
-      console.log("[ComparisonView] evaluateSingleModel completed");
-    } else {
-      console.log("[ComparisonView] Cannot evaluate - missing response or evaluateSingleModel function");
+    
+    if (analyzeAllHighlightsRef && hasResponses) {
+      analyzeAllHighlightsRef.current = async () => {
+        await analyzeAllHighlightsLatestRef.current();
+        setHighlightedModels(new Set(selectedModelsLatestRef.current));
+      };
+    } else if (analyzeAllHighlightsRef) {
+      analyzeAllHighlightsRef.current = null;
     }
-  }, [responsesMap, evaluateSingleModel]);
+    
+    // Notify parent when ready state changes
+    if (hasResponses && !readyStateRef.current) {
+      readyStateRef.current = true;
+      onEvaluationReadyChange?.(true);
+    } else if (!hasResponses && readyStateRef.current) {
+      readyStateRef.current = false;
+      onEvaluationReadyChange?.(false);
+    }
+  }, [hasResponses, evaluateAllRef, analyzeAllHighlightsRef, onEvaluationReadyChange]);
+
+  // Update highlighted models based on showHighlights prop
+  useEffect(() => {
+    if (showHighlights && highlightAnalyses.size > 0) {
+      setHighlightedModels(new Set(selectedModels));
+    } else if (!showHighlights) {
+      setHighlightedModels(new Set());
+    }
+  }, [showHighlights, selectedModels, highlightAnalyses.size]);
+
+  // Report evaluation state changes to parent
+  useEffect(() => {
+    onEvaluationStateChange?.(isEvaluatingAny);
+  }, [isEvaluatingAny, onEvaluationStateChange]);
+
+  // Report highlight analyzing state to parent
+  useEffect(() => {
+    const isAnalyzing = selectedModels.some(m => isAnalyzingHighlights(m));
+    onHighlightStateChange?.(isAnalyzing);
+  }, [selectedModels, isAnalyzingHighlights, onHighlightStateChange]);
+
+  // Report if any highlights exist to parent
+  useEffect(() => {
+    onHasHighlightsChange?.(hasAnyHighlights);
+  }, [hasAnyHighlights, onHasHighlightsChange]);
 
   return (
     <div className="space-y-3">
@@ -486,13 +525,7 @@ function TurnView({
             const highlightAnalysis = highlightAnalyses.get(model) || savedResponse?.highlightAnalysis || null;
             const showHighlights = highlightedModels.has(model);
 
-            console.log(`[TurnView] Rendering ResponseCard for ${model}:`, {
-              hasHandleEvaluateSingle: !!handleEvaluateSingle,
-              hasEvaluateSingleModel: !!evaluateSingleModel,
-              isLatestTurn,
-              turnIndex: turn.userMessage.id
-            });
-            
+
             return (
               <ResponseCard
                 key={model}
@@ -504,7 +537,6 @@ function TurnView({
                 isRegenerating={isModelRegenerating}
                 onCopy={(text) => onCopy(text, model)}
                 onRegenerate={onRegenerate}
-                onEvaluate={handleEvaluateSingle}
                 copiedModel={copiedModel}
                 speakingModel={speakingModel}
                 onSpeak={onSpeak}
@@ -515,9 +547,7 @@ function TurnView({
                 evaluation={evaluation}
                 highlightAnalysis={highlightAnalysis}
                 isEvaluating={isEvaluating(model)}
-                isAnalyzingHighlights={isAnalyzingHighlights(model)}
                 evaluationError={errors.get(model)}
-                onHighlightClick={() => handleHighlightClick(model)}
                 showHighlights={showHighlights}
               />
             );
@@ -530,9 +560,25 @@ function TurnView({
 
 interface ComparisonViewProps {
   onRegenerate?: (model: string) => void;
+  showHighlights?: boolean;
+  onEvaluationStateChange?: (isEvaluating: boolean) => void;
+  onHighlightStateChange?: (isAnalyzing: boolean) => void;
+  onHasHighlightsChange?: (hasHighlights: boolean) => void;
+  onEvaluationReadyChange?: (isReady: boolean) => void;
+  evaluateAllRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  analyzeAllHighlightsRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
-export function ComparisonView({ onRegenerate }: ComparisonViewProps) {
+export function ComparisonView({
+  onRegenerate,
+  showHighlights = false,
+  onEvaluationStateChange,
+  onHighlightStateChange,
+  onHasHighlightsChange,
+  onEvaluationReadyChange,
+  evaluateAllRef,
+  analyzeAllHighlightsRef,
+}: ComparisonViewProps) {
   const { selectedModels, currentResponses, isLoading, currentChatId, regeneratingModels } = useChatStore();
   const { messages } = useChatMessages(currentChatId);
   
@@ -543,8 +589,6 @@ export function ComparisonView({ onRegenerate }: ComparisonViewProps) {
   ]);
   const [copiedModel, setCopiedModel] = useState<string | null>(null);
   const [speakingModel, setSpeakingModel] = useState<string | null>(null);
-  const [streamingEvaluations, setStreamingEvaluations] = useState<Map<string, any>>(new Map());
-  const [streamingEvaluating, setStreamingEvaluating] = useState<Set<string>>(new Set());
   const { speak, stop, pause, resume, isSpeaking, isPaused, isSupported } = useTextToSpeech();
 
   const handleCopy = async (text: string, model: string) => {
@@ -591,51 +635,6 @@ export function ComparisonView({ onRegenerate }: ComparisonViewProps) {
     setSpeakingModel(null);
   };
 
-  // Create evaluation handler at ComparisonView level for streaming placeholder
-  const handleStreamingEvaluate = useCallback(async (model: string, content: string, userQuestion: string) => {
-    console.log('[ComparisonView] Streaming evaluate called for:', model);
-    
-    // Set loading state
-    setStreamingEvaluating(prev => new Set(prev).add(model));
-    
-    try {
-      // Call the evaluation API directly
-      const { evaluateResponse } = await import('@/lib/utils/response-evaluation');
-      
-      // Build other responses
-      const otherResponses = Object.entries(stableCurrentResponses)
-        .filter(([m]) => m !== model)
-        .map(([m, r]) => ({ model: m, content: r.content }));
-      
-      const request = {
-        userQuestion,
-        currentResponse: content,
-        currentModel: model,
-        otherResponses,
-      };
-      
-      console.log('[ComparisonView] Calling evaluation API...');
-      const evaluation = await evaluateResponse(request, "llama3.2:3b");
-      console.log('[ComparisonView] Evaluation complete:', evaluation);
-      
-      // Store the evaluation result
-      setStreamingEvaluations(prev => {
-        const newMap = new Map(prev);
-        newMap.set(model, evaluation);
-        return newMap;
-      });
-    } catch (error) {
-      console.error('[ComparisonView] Evaluation error:', error);
-    } finally {
-      // Remove loading state
-      setStreamingEvaluating(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(model);
-        return newSet;
-      });
-    }
-  }, [stableCurrentResponses]);
-
   if (selectedModels.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -647,20 +646,10 @@ export function ComparisonView({ onRegenerate }: ComparisonViewProps) {
   // Group messages into conversation turns
   const turns = groupMessagesByTurn(messages, selectedModels);
 
-  // Check if the last turn already has all responses saved
-  const lastTurnHasAllResponses = turns.length > 0 && 
-    selectedModels.every(model => turns[turns.length - 1].responses.has(model));
+  // Check if we have streaming responses even if no turns saved yet
+  const hasStreamingContent = Object.values(stableCurrentResponses).some(r => r && r.content);
 
-  // Check if currentResponses has any data that isn't saved yet
-  const hasUnsavedResponses = turns.length > 0 && lastTurnHasAllResponses
-    ? false
-    : Object.keys(stableCurrentResponses).length > 0 && 
-      Object.values(stableCurrentResponses).some(response => response.content);
-
-  const showStreamingPlaceholder = (isLoading || hasUnsavedResponses) && 
-    (turns.length === 0 || !lastTurnHasAllResponses);
-
-  if (turns.length === 0 && !showStreamingPlaceholder) {
+  if (turns.length === 0 && !hasStreamingContent) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         Send a message to compare model responses
@@ -672,31 +661,37 @@ export function ComparisonView({ onRegenerate }: ComparisonViewProps) {
     <div className="h-full flex flex-col overflow-hidden">
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-6">
-          {turns.map((turn, index) => (
-            <TurnView
-              key={turn.userMessage.id}
-              turn={turn}
-              selectedModels={selectedModels}
-              isLatestTurn={index === turns.length - 1}
-              currentResponses={stableCurrentResponses}
-              isLoading={isLoading}
-              regeneratingModels={regeneratingModels}
-              onCopy={handleCopy}
-              onRegenerate={handleRegenerate}
-              copiedModel={copiedModel}
-              speakingModel={speakingModel}
-              onSpeak={handleSpeak}
-              onStop={handleStop}
-              isSpeaking={isSpeaking}
-              isPaused={isPaused}
-              isSupported={isSupported}
-            />
-          ))}
-
-          {/* Show streaming placeholder for new messages */}
-          {showStreamingPlaceholder && Object.keys(stableCurrentResponses).length > 0 && (
+          {turns.length > 0 ? (
+            turns.map((turn, index) => (
+              <TurnView
+                key={turn.userMessage.id}
+                turn={turn}
+                selectedModels={selectedModels}
+                isLatestTurn={index === turns.length - 1}
+                currentResponses={stableCurrentResponses}
+                isLoading={isLoading}
+                regeneratingModels={regeneratingModels}
+                onCopy={handleCopy}
+                onRegenerate={handleRegenerate}
+                copiedModel={copiedModel}
+                speakingModel={speakingModel}
+                onSpeak={handleSpeak}
+                onStop={handleStop}
+                isSpeaking={isSpeaking}
+                isPaused={isPaused}
+                isSupported={isSupported}
+                showHighlights={showHighlights}
+                onEvaluationStateChange={onEvaluationStateChange}
+                onHighlightStateChange={onHighlightStateChange}
+                onHasHighlightsChange={onHasHighlightsChange}
+                onEvaluationReadyChange={onEvaluationReadyChange}
+                evaluateAllRef={evaluateAllRef}
+                analyzeAllHighlightsRef={analyzeAllHighlightsRef}
+              />
+            ))
+          ) : hasStreamingContent ? (
+            // Show streaming responses even without saved messages
             <div className="space-y-3">
-              {/* Only show model responses grid when streaming new turn */}
               <div
                 className="grid gap-3"
                 style={{ gridTemplateColumns: `repeat(${selectedModels.length}, 1fr)` }}
@@ -704,10 +699,6 @@ export function ComparisonView({ onRegenerate }: ComparisonViewProps) {
                 {selectedModels.map((model) => {
                   const streamingResponse = stableCurrentResponses[model];
                   const isStreaming = streamingResponse && !streamingResponse.done;
-                  
-                  // Get the last user message for evaluation context
-                  const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-                  const userQuestion = lastUserMessage?.content || '';
 
                   return (
                     <ResponseCard
@@ -720,9 +711,6 @@ export function ComparisonView({ onRegenerate }: ComparisonViewProps) {
                       isRegenerating={regeneratingModels.has(model)}
                       onCopy={(text) => handleCopy(text, model)}
                       onRegenerate={handleRegenerate}
-                      onEvaluate={streamingResponse?.content ? () => handleStreamingEvaluate(model, streamingResponse.content, userQuestion) : undefined}
-                      isEvaluating={streamingEvaluating.has(model)}
-                      evaluation={streamingEvaluations.get(model) || null}
                       copiedModel={copiedModel}
                       speakingModel={speakingModel}
                       onSpeak={handleSpeak}
@@ -735,7 +723,7 @@ export function ComparisonView({ onRegenerate }: ComparisonViewProps) {
                 })}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </ScrollArea>
     </div>

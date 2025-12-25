@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
 import { Copy, Check } from "lucide-react";
 
 interface MarkdownRendererProps {
@@ -110,7 +111,7 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
     <div className={`markdown-content ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={[rehypeRaw, rehypeHighlight]}
         components={{
           // Headings
           h1: ({ node, ...props }) => (
@@ -224,6 +225,11 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
           ),
           em: ({ node, ...props }) => (
             <em className="italic" {...props} />
+          ),
+          
+          // Mark/highlight (for highlighted content)
+          mark: ({ node, className, ...props }: any) => (
+            <mark className={className} {...props} />
           ),
         }}
       >

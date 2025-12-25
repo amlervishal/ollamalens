@@ -10,16 +10,12 @@ interface EvaluationDisplayProps {
   evaluation: ResponseEvaluation | null;
   isLoading?: boolean;
   error?: string;
-  onHighlightClick?: () => void;
-  isHighlightLoading?: boolean;
 }
 
 export function EvaluationDisplay({
   evaluation,
   isLoading,
   error,
-  onHighlightClick,
-  isHighlightLoading,
 }: EvaluationDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -30,27 +26,6 @@ export function EvaluationDisplay({
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           <span>Evaluating response...</span>
         </div>
-        {/* Show highlight button even while loading */}
-        {onHighlightClick && (
-          <div className="pt-2 mt-2 border-t">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full h-7 text-xs"
-              onClick={onHighlightClick}
-              disabled={isHighlightLoading}
-            >
-              {isHighlightLoading ? (
-                <>
-                  <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                "Highlight Analysis"
-              )}
-            </Button>
-          </div>
-        )}
       </div>
     );
   }
@@ -61,55 +36,11 @@ export function EvaluationDisplay({
         <div className="text-sm text-muted-foreground">
           <span className="text-destructive">Evaluation error: {error}</span>
         </div>
-        {/* Show highlight button even on error */}
-        {onHighlightClick && (
-          <div className="pt-2 mt-2 border-t">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full h-7 text-xs"
-              onClick={onHighlightClick}
-              disabled={isHighlightLoading}
-            >
-              {isHighlightLoading ? (
-                <>
-                  <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                "Highlight Analysis"
-              )}
-            </Button>
-          </div>
-        )}
       </div>
     );
   }
 
   if (!evaluation) {
-    // Show highlight button even if no evaluation yet
-    if (onHighlightClick) {
-      return (
-        <div className="px-4 py-2 border-t bg-muted/10">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full h-7 text-xs"
-            onClick={onHighlightClick}
-            disabled={isHighlightLoading}
-          >
-            {isHighlightLoading ? (
-              <>
-                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
-                Analyzing...
-              </>
-            ) : (
-              "Highlight Analysis"
-            )}
-          </Button>
-        </div>
-      );
-    }
     return null;
   }
 
@@ -201,48 +132,6 @@ export function EvaluationDisplay({
           </div>
         )}
       </div>
-
-      {/* Difference Analysis */}
-      {evaluation.differenceAnalysis.missingTopics.length > 0 && (
-        <div className="space-y-1.5 pt-1 border-t">
-          <span className="text-xs font-medium text-muted-foreground">Missing Topics:</span>
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p className="italic">{evaluation.differenceAnalysis.summary}</p>
-            <ul className="list-disc list-inside space-y-0.5 ml-2">
-              {evaluation.differenceAnalysis.missingTopics.slice(0, 3).map((topic, idx) => (
-                <li key={idx}>{topic}</li>
-              ))}
-              {evaluation.differenceAnalysis.missingTopics.length > 3 && (
-                <li className="text-muted-foreground/70">
-                  +{evaluation.differenceAnalysis.missingTopics.length - 3} more
-                </li>
-              )}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {/* Highlight Analysis Button */}
-      {onHighlightClick && (
-        <div className="pt-2 border-t">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full h-7 text-xs"
-            onClick={onHighlightClick}
-            disabled={isHighlightLoading}
-          >
-            {isHighlightLoading ? (
-              <>
-                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
-                Analyzing...
-              </>
-            ) : (
-              "Highlight Analysis"
-            )}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

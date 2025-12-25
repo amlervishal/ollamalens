@@ -1,5 +1,6 @@
 import { useChatStore } from "@/store/chat-store";
-import { useChats, useChatMessages } from "./use-chats";
+import { useChats } from "./use-chats";
+import { addMessage } from "@/lib/storage/db";
 import type { ModelResponse, Attachment, OllamaChatMessage } from "@/types";
 
 export function useSendMessage() {
@@ -14,7 +15,6 @@ export function useSendMessage() {
     setRegenerating,
   } = useChatStore();
   const { createChat } = useChats();
-  const { addMessage: saveMessage } = useChatMessages(currentChatId);
 
   // Wait for all responses to be marked as done in the store
   const waitForAllResponsesDone = async (models: string[], maxWaitMs: number = 2000): Promise<boolean> => {
@@ -122,7 +122,7 @@ export function useSendMessage() {
 
       // Save assistant message
       if (shouldSaveMessage && chatId && finalResponse.content) {
-        await saveMessage("assistant", finalResponse.content, model);
+        await addMessage(chatId, "assistant", finalResponse.content, model);
       }
 
       return finalResponse;
@@ -158,7 +158,7 @@ export function useSendMessage() {
 
     // Save user message
     if (chatId) {
-      await saveMessage("user", prompt, null, attachments);
+      await addMessage(chatId, "user", prompt, null, attachments);
     }
 
     // Extract image data from attachments for Ollama API

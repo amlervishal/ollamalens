@@ -7,11 +7,16 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
 import { ModelSelector } from "@/components/model-selector/model-selector";
+import { EvaluationControls } from "@/components/chat/evaluation-controls";
 
-export function ChatHistory() {
+interface ChatHistoryProps {
+  evaluationControls?: React.ComponentProps<typeof EvaluationControls>;
+}
+
+export function ChatHistory({ evaluationControls }: ChatHistoryProps = {}) {
   const { chats, createChat } = useChats();
   const { currentChatId, setCurrentChatId } = useChatStore();
-  const [isHistoryOpen, setIsHistoryOpen] = useState(true);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const handleNewChat = async () => {
     const newChat = await createChat("New Chat");
@@ -26,7 +31,7 @@ export function ChatHistory() {
     <div className="flex flex-col h-full border-r bg-muted/30">
       {/* App Name */}
       <div className="px-4 pt-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">App Name</h2>
+        <h2 className="text-lg font-semibold">OllamaLens</h2>
         <button
           onClick={handleNewChat}
           className="h-8 w-8 rounded-full bg-black text-white flex items-center justify-center"
@@ -46,6 +51,9 @@ export function ChatHistory() {
 
       {/* Large Spacer - pushes History to bottom */}
       <div className="flex-1" />
+
+      {/* Evaluation Controls */}
+      {evaluationControls && <EvaluationControls {...evaluationControls} />}
 
       {/* History Section - Accordion - at bottom */}
       <div className="flex flex-col min-h-0 shrink-0">

@@ -111,22 +111,16 @@ export type ReadabilityLevel = "easy" | "medium" | "difficult" | "technical";
 
 export interface ParameterScores {
   accuracy: number; // 1-4
-  padding: number; // 1-4
-  completeness: number; // 1-4
+  depth: number; // 1-4
   clarity: number; // 1-4
+  structure: number; // 1-4
   relevance: number; // 1-4
-}
-
-export interface DifferenceAnalysis {
-  missingTopics: string[]; // Topics covered in other responses but not this one
-  summary: string; // Summary of what was not covered
 }
 
 export interface ResponseEvaluation {
   readability: ReadabilityLevel;
   parameterScores: ParameterScores;
   finalScore: number; // 1-4 (average of parameters)
-  differenceAnalysis: DifferenceAnalysis;
 }
 
 export interface HighlightAnalysis {
@@ -150,5 +144,29 @@ export interface HighlightRequest {
     content: string;
   }>;
   targetModel: string; // Model to analyze highlights for
+}
+
+// Batch evaluation types
+export interface BatchEvaluationRequest {
+  userQuestion: string;
+  responses: Array<{
+    model: string;
+    content: string;
+  }>;
+}
+
+export interface BatchEvaluationResponse {
+  evaluations: Record<string, ResponseEvaluation>;
+}
+
+export interface BatchHighlightRequest {
+  responses: Array<{
+    model: string;
+    content: string;
+  }>;
+}
+
+export interface BatchHighlightResponse {
+  highlights: Record<string, HighlightAnalysis>;
 }
 

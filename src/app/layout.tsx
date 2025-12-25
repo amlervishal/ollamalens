@@ -11,8 +11,8 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "Multi-Modal WebUI",
-  description: "Local-first multi-modal web application for interacting with multiple LLM models",
+  title: "OllamaLens",
+  description: "Compare AI models side-by-side - Your local multi-modal Ollama interface",
   manifest: "/manifest.json",
 };
 

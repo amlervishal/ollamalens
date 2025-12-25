@@ -3,6 +3,10 @@ import type {
   HighlightRequest,
   ResponseEvaluation,
   HighlightAnalysis,
+  BatchEvaluationRequest,
+  BatchEvaluationResponse,
+  BatchHighlightRequest,
+  BatchHighlightResponse,
 } from "@/types";
 
 const DEFAULT_EVAL_MODEL = "llama3.2:3b";
@@ -15,7 +19,7 @@ function buildEvaluationPrompt(request: EvaluationRequest): string {
     .map((r, idx) => `Response ${idx + 1} (${r.model}):\n${r.content}`)
     .join("\n\n");
 
-  return `You are an expert evaluator of AI model responses. Evaluate the following response and provide a structured assessment.
+  return `You are an expert evaluator of AI model responses for both creative and technical writing. Evaluate the following response and provide a structured assessment.
 
 USER QUESTION:
 ${request.userQuestion}
@@ -31,37 +35,48 @@ Please provide your evaluation in the following JSON format:
   "readability": "easy" | "medium" | "difficult" | "technical",
   "parameterScores": {
     "accuracy": 1-4,
-    "padding": 1-4,
-    "completeness": 1-4,
+    "depth": 1-4,
     "clarity": 1-4,
+    "structure": 1-4,
     "relevance": 1-4
   },
-  "finalScore": 1-4,
-  "differenceAnalysis": {
-    "missingTopics": ["topic1", "topic2", ...],
-    "summary": "Brief summary of what topics/points are covered in other responses but missing from this response"
-  }
+  "finalScore": 1-4
 }
 
 EVALUATION CRITERIA:
+
 - Readability: Assess based on vocabulary complexity and sentence structure
-  * "easy": Simple language, short sentences, common words
-  * "medium": Moderate complexity, some technical terms explained
-  * "difficult": Complex language, technical terms, longer sentences
-  * "technical": Highly specialized terminology, assumes domain knowledge
+  * "easy": Simple language, short sentences, accessible to all readers
+  * "medium": Moderate complexity, balanced vocabulary
+  * "difficult": Complex language, sophisticated vocabulary
+  * "technical": Specialized terminology, assumes domain knowledge
 
 - Parameter Scores (1-4 scale):
-  * accuracy: How correct and factually accurate is the information? (1=poor, 4=excellent)
-  * padding: How much unnecessary repetition or filler content? (1=excessive padding, 4=no padding)
-  * completeness: How well does it answer the question? (1=incomplete, 4=comprehensive)
-  * clarity: How clear and understandable is the response? (1=confusing, 4=very clear)
-  * relevance: How well does it stay on topic? (1=off-topic, 4=highly relevant)
+  * accuracy: How correct and reliable is the information?
+    - Technical: Factual correctness, no misinformation
+    - Creative: Internal consistency, logical coherence
+    - 1=poor/incorrect, 2=some errors, 3=mostly correct, 4=excellent/precise
+    
+  * depth: How comprehensive and detailed is the response?
+    - Technical: Thorough coverage, detailed explanations
+    - Creative: Rich detail, well-developed ideas and descriptions
+    - 1=superficial, 2=basic, 3=good detail, 4=comprehensive
+    
+  * clarity: How clear and understandable is the response?
+    - Technical: Easy to follow, concepts well-explained
+    - Creative: Vivid expression, clear communication of ideas
+    - 1=very confusing, 2=somewhat unclear, 3=clear, 4=exceptionally clear
+    
+  * structure: How well-organized and coherent is the response?
+    - Technical: Logical flow, good organization, no redundancy
+    - Creative: Strong narrative/argumentative structure, smooth transitions
+    - 1=disorganized/rambling, 2=somewhat structured, 3=well-organized, 4=excellent structure
+    
+  * relevance: How well does it address the question/prompt?
+    - Both: Stays focused, directly addresses what was asked
+    - 1=off-topic, 2=partially relevant, 3=relevant, 4=highly focused and relevant
 
 - Final Score: Average of all parameter scores (round to 1 decimal place)
-
-- Difference Analysis: Compare this response to others and identify:
-  * Topics/points mentioned in other responses but missing here
-  * Provide a brief summary of what's not covered
 
 Respond ONLY with valid JSON, no additional text.`;
 }
@@ -85,7 +100,7 @@ function buildHighlightPrompt(request: HighlightRequest): string {
     .map((r, idx) => `Response ${idx + 1} (${r.model}):\n${r.content}`)
     .join("\n\n");
 
-  return `Analyze the following response and identify sentences that are similar to other responses (semantic similarity) and sentences that are unique/different.
+  return `Analyze the target response and compare it with other responses to identify COMMON IDEAS and UNIQUE IDEAS.
 
 TARGET RESPONSE (${request.targetModel}):
 ${targetResponse.content}
@@ -99,12 +114,22 @@ Please provide your analysis in the following JSON format:
   "differentSentences": ["sentence1", "sentence2", ...]
 }
 
-INSTRUCTIONS:
-- Extract complete sentences from the target response
-- "similarSentences": Sentences that convey similar meaning/concepts as sentences in other responses (semantic similarity, not exact word match)
-- "differentSentences": Sentences that contain unique information, concepts, or perspectives not found in other responses
-- Each sentence should be a complete, standalone sentence from the target response
-- If a sentence appears in both categories, prefer "differentSentences"
+CRITICAL INSTRUCTIONS FOR IDEA-BASED MATCHING:
+1. Focus on IDEAS and CONCEPTS, not exact word matches
+2. "similarSentences": Include sentences/phrases/items from the target response that express the SAME IDEAS, CONCEPTS, or INFORMATION found in other responses
+   - Example: "Gateway of India" in target matches "Gateway of India" in other response → SIMILAR
+   - Example: "Marine Drive" in target matches "Marine Drive" in other response → SIMILAR
+   - Example: Item mentioned in both responses with same/similar name → SIMILAR
+   - Look for semantic equivalence: same places, same concepts, same facts, even if wording differs slightly
+   
+3. "differentSentences": Include sentences/phrases/items from the target response that express UNIQUE IDEAS or INFORMATION not found in any other response
+   - Only mark as different if the concept/idea/place is truly unique to this response
+   - Example: "Elephanta Caves" only in target, not in others → DIFFERENT
+   
+4. Extract meaningful units (can be full sentences, phrases, or individual items from lists)
+5. When responses contain lists, compare each item individually
+6. If an item/concept appears in ANY other response, it should be in "similarSentences"
+7. Only put items in "differentSentences" if they appear NOWHERE in other responses
 
 Respond ONLY with valid JSON, no additional text.`;
 }
@@ -155,9 +180,9 @@ function validateEvaluation(data: any): ResponseEvaluation {
 
   const parameterScores = {
     accuracy: validateScore(scores?.accuracy, "accuracy"),
-    padding: validateScore(scores?.padding, "padding"),
-    completeness: validateScore(scores?.completeness, "completeness"),
+    depth: validateScore(scores?.depth, "depth"),
     clarity: validateScore(scores?.clarity, "clarity"),
+    structure: validateScore(scores?.structure, "structure"),
     relevance: validateScore(scores?.relevance, "relevance"),
   };
 
@@ -173,14 +198,6 @@ function validateEvaluation(data: any): ResponseEvaluation {
     readability: readability as "easy" | "medium" | "difficult" | "technical",
     parameterScores,
     finalScore: Math.max(1, Math.min(4, finalScore)),
-    differenceAnalysis: {
-      missingTopics: Array.isArray(data.differenceAnalysis?.missingTopics)
-        ? data.differenceAnalysis.missingTopics
-        : [],
-      summary:
-        data.differenceAnalysis?.summary ||
-        "No significant differences identified.",
-    },
   };
 }
 
@@ -264,6 +281,209 @@ export async function analyzeHighlights(
     return validateHighlightAnalysis(parsed);
   } catch (error) {
     console.error("Error analyzing highlights:", error);
+    throw error;
+  }
+}
+
+/**
+ * Builds a batch evaluation prompt that evaluates all models at once
+ */
+function buildBatchEvaluationPrompt(request: BatchEvaluationRequest): string {
+  const responsesText = request.responses
+    .map((r, idx) => `Response ${idx + 1} (${r.model}):\n${r.content}`)
+    .join("\n\n");
+
+  return `You are an expert evaluator of AI model responses for both creative and technical writing. Evaluate ALL of the following responses and provide structured assessments for EACH model.
+
+USER QUESTION:
+${request.userQuestion}
+
+RESPONSES TO EVALUATE:
+${responsesText}
+
+Please provide your evaluation in the following JSON format with evaluations for ALL models:
+{
+  "evaluations": {
+    "${request.responses[0]?.model || 'model1'}": {
+      "readability": "easy" | "medium" | "difficult" | "technical",
+      "parameterScores": {
+        "accuracy": 1-4,
+        "depth": 1-4,
+        "clarity": 1-4,
+        "structure": 1-4,
+        "relevance": 1-4
+      },
+      "finalScore": 1-4
+    },
+    "${request.responses[1]?.model || 'model2'}": { ... },
+    ... (include ALL models)
+  }
+}
+
+EVALUATION CRITERIA:
+
+- Readability: Assess based on vocabulary complexity and sentence structure
+  * "easy": Simple language, short sentences, accessible to all readers
+  * "medium": Moderate complexity, balanced vocabulary
+  * "difficult": Complex language, sophisticated vocabulary
+  * "technical": Specialized terminology, assumes domain knowledge
+
+- Parameter Scores (1-4 scale):
+  * accuracy: How correct and reliable is the information?
+    - Technical: Factual correctness, no misinformation
+    - Creative: Internal consistency, logical coherence
+    - 1=poor/incorrect, 2=some errors, 3=mostly correct, 4=excellent/precise
+    
+  * depth: How comprehensive and detailed is the response?
+    - Technical: Thorough coverage, detailed explanations
+    - Creative: Rich detail, well-developed ideas and descriptions
+    - 1=superficial, 2=basic, 3=good detail, 4=comprehensive
+    
+  * clarity: How clear and understandable is the response?
+    - Technical: Easy to follow, concepts well-explained
+    - Creative: Vivid expression, clear communication of ideas
+    - 1=very confusing, 2=somewhat unclear, 3=clear, 4=exceptionally clear
+    
+  * structure: How well-organized and coherent is the response?
+    - Technical: Logical flow, good organization, no redundancy
+    - Creative: Strong narrative/argumentative structure, smooth transitions
+    - 1=disorganized/rambling, 2=somewhat structured, 3=well-organized, 4=excellent structure
+    
+  * relevance: How well does it address the question/prompt?
+    - Both: Stays focused, directly addresses what was asked
+    - 1=off-topic, 2=partially relevant, 3=relevant, 4=highly focused and relevant
+
+- Final Score: Average of all parameter scores (round to 1 decimal place)
+
+Respond ONLY with valid JSON, no additional text.`;
+}
+
+/**
+ * Builds a batch highlight analysis prompt that analyzes all models at once
+ */
+function buildBatchHighlightPrompt(request: BatchHighlightRequest): string {
+  const responsesText = request.responses
+    .map((r, idx) => `Response ${idx + 1} (${r.model}):\n${r.content}`)
+    .join("\n\n");
+
+  return `Analyze ALL responses and identify COMMON IDEAS (appearing across multiple responses) and UNIQUE IDEAS (specific to each response).
+
+RESPONSES:
+${responsesText}
+
+Please provide your analysis in the following JSON format with highlights for ALL models:
+{
+  "highlights": {
+    "${request.responses[0]?.model || 'model1'}": {
+      "similarSentences": ["sentence1", "sentence2", ...],
+      "differentSentences": ["sentence1", "sentence2", ...]
+    },
+    "${request.responses[1]?.model || 'model2'}": { ... },
+    ... (include ALL models)
+  }
+}
+
+CRITICAL INSTRUCTIONS FOR IDEA-BASED MATCHING:
+1. Focus on IDEAS and CONCEPTS, not exact word matches
+2. For EACH response:
+   - "similarSentences": Include content that expresses the SAME IDEAS/CONCEPTS/INFORMATION found in OTHER responses
+     * If a place name appears in multiple responses → SIMILAR in all of them
+     * If a fact is mentioned in multiple responses → SIMILAR in all of them
+     * Compare based on semantic meaning: same concepts = similar
+     * Example: "Gateway of India" in Response 1 and Response 2 → mark as SIMILAR in both
+     
+   - "differentSentences": Include content that expresses UNIQUE IDEAS/INFORMATION not found in other responses
+     * Only mark as different if the concept/idea/place appears ONLY in this response
+     * Example: "Elephanta Caves" only in Response 1, not in Response 2 → DIFFERENT in Response 1
+     
+3. Extract meaningful units (can be full sentences, phrases, or individual items from lists)
+4. When responses contain lists, compare each item individually across all responses
+5. An item that appears in 2+ responses should be marked as "similarSentences" in ALL those responses
+6. An item that appears in only 1 response should be marked as "differentSentences" in that response only
+
+Respond ONLY with valid JSON, no additional text.`;
+}
+
+/**
+ * Evaluates all responses in a single API call
+ */
+export async function evaluateAllResponses(
+  request: BatchEvaluationRequest,
+  evalModel: string = DEFAULT_EVAL_MODEL
+): Promise<BatchEvaluationResponse> {
+  const prompt = buildBatchEvaluationPrompt(request);
+
+  try {
+    const response = await fetch("/api/evaluation", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: evalModel,
+        prompt,
+        type: "batch-evaluation",
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Batch evaluation failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const parsed = parseJsonResponse(data.response || data.content || "");
+
+    // Validate each evaluation in the batch
+    const evaluations: Record<string, ResponseEvaluation> = {};
+    for (const [model, evalData] of Object.entries(parsed.evaluations || {})) {
+      evaluations[model] = validateEvaluation(evalData);
+    }
+
+    return { evaluations };
+  } catch (error) {
+    console.error("Error in batch evaluation:", error);
+    throw error;
+  }
+}
+
+/**
+ * Analyzes highlights for all responses in a single API call
+ */
+export async function analyzeAllHighlights(
+  request: BatchHighlightRequest,
+  evalModel: string = DEFAULT_EVAL_MODEL
+): Promise<BatchHighlightResponse> {
+  const prompt = buildBatchHighlightPrompt(request);
+
+  try {
+    const response = await fetch("/api/evaluation", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: evalModel,
+        prompt,
+        type: "batch-highlight",
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Batch highlight analysis failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const parsed = parseJsonResponse(data.response || data.content || "");
+
+    // Validate each highlight analysis in the batch
+    const highlights: Record<string, HighlightAnalysis> = {};
+    for (const [model, highlightData] of Object.entries(parsed.highlights || {})) {
+      highlights[model] = validateHighlightAnalysis(highlightData);
+    }
+
+    return { highlights };
+  } catch (error) {
+    console.error("Error in batch highlight analysis:", error);
     throw error;
   }
 }

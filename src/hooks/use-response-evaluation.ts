@@ -1,10 +1,17 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { evaluateResponse, analyzeHighlights } from "@/lib/utils/response-evaluation";
+import { 
+  evaluateResponse, 
+  analyzeHighlights,
+  evaluateAllResponses,
+  analyzeAllHighlights as analyzeAllHighlightsUtil,
+} from "@/lib/utils/response-evaluation";
 import type {
   ResponseEvaluation,
   HighlightAnalysis,
   EvaluationRequest,
   HighlightRequest,
+  BatchEvaluationRequest,
+  BatchHighlightRequest,
 } from "@/types";
 
 interface UseResponseEvaluationOptions {
@@ -24,7 +31,7 @@ export function useResponseEvaluation(
   responses: Map<string, { content: string; done: boolean }>,
   options: UseResponseEvaluationOptions = {}
 ) {
-  const { evalModel = "llama3.2:3b", autoEvaluate = true } = options;
+  const { evalModel = "gemma3:4b", autoEvaluate = true } = options;
 
   const [state, setState] = useState<EvaluationState>({
     evaluations: new Map(),
@@ -366,9 +373,9 @@ export function useResponseEvaluation(
     [responses, evaluateSingleResponse]
   );
 
-  // Manual evaluation for all models
+  // Batch evaluation for all models (single API call)
   const evaluateAll = useCallback(async () => {
-    console.log("[Evaluation] 🔘 Manual evaluation triggered for all models");
+    console.log("[Evaluation] 🔘 Batch evaluation triggered for all models");
     
     if (responses.size === 0) {
       console.log("[Evaluation] No responses to evaluate");
@@ -393,98 +400,159 @@ export function useResponseEvaluation(
       errors: new Map(),
     }));
 
-    // Evaluate all models
-    const modelsToEvaluate = Array.from(responses.entries())
+    // Prepare batch request
+    const responsesToEvaluate = Array.from(responses.entries())
       .filter(([_, r]) => r.content.trim().length > 0)
       .map(([model, response]) => ({ model, content: response.content }));
 
-    console.log(`[Evaluation] 🚀 Manual evaluation starting for ${modelsToEvaluate.length} model(s):`, modelsToEvaluate.map(m => m.model));
+    console.log(`[Evaluation] 🚀 Batch evaluation starting for ${responsesToEvaluate.length} model(s):`, responsesToEvaluate.map(r => r.model));
 
-    // Trigger evaluations in parallel
-    modelsToEvaluate.forEach(({ model, content }) => {
-      const cacheKey = `${userQuestion}:${model}:${content.substring(0, 100)}`;
-      
-      // Check cache first
-      if (evaluationCacheRef.current.has(cacheKey)) {
-        console.log(`[Evaluation] Using cached evaluation for ${model}`);
-        setState((prev) => {
-          const newEvaluations = new Map(prev.evaluations);
-          newEvaluations.set(model, evaluationCacheRef.current.get(cacheKey)!);
-          return {
-            ...prev,
-            evaluations: newEvaluations,
-          };
+    // Set loading state for all models
+    setState((prev) => {
+      const newLoading = new Set(prev.loading);
+      responsesToEvaluate.forEach(({ model }) => {
+        newLoading.add(model);
+        evaluatedModelsRef.current.add(model);
+      });
+      return { ...prev, loading: newLoading };
+    });
+
+    const request: BatchEvaluationRequest = {
+      userQuestion,
+      responses: responsesToEvaluate,
+    };
+
+    try {
+      console.log(`[Evaluation] 📡 Calling batch evaluation API...`);
+      const result = await evaluateAllResponses(request, evalModel);
+      console.log(`[Evaluation] ✅ Received batch evaluation:`, result);
+
+      // Cache and update state for all evaluations
+      setState((prev) => {
+        const newEvaluations = new Map(prev.evaluations);
+        const newLoading = new Set(prev.loading);
+        const newErrors = new Map(prev.errors);
+
+        Object.entries(result.evaluations).forEach(([model, evaluation]) => {
+          // Cache result
+          const response = responses.get(model);
+          if (response) {
+            const cacheKey = `${userQuestion}:${model}:${response.content.substring(0, 100)}`;
+            evaluationCacheRef.current.set(cacheKey, evaluation);
+          }
+
+          newEvaluations.set(model, evaluation);
+          newLoading.delete(model);
+          newErrors.delete(model);
         });
-        return;
-      }
 
-      // Set loading state
+        return {
+          ...prev,
+          evaluations: newEvaluations,
+          loading: newLoading,
+          errors: newErrors,
+        };
+      });
+    } catch (error) {
+      console.error(`[Evaluation] Error in batch evaluation:`, error);
+      
+      // Clear loading state and set error for all models
       setState((prev) => {
         const newLoading = new Set(prev.loading);
-        newLoading.add(model);
-        return { ...prev, loading: newLoading };
-      });
+        const newErrors = new Map(prev.errors);
 
-      // Build other responses list
-      const otherResponses = Array.from(responses.entries())
-        .filter(([m]) => m !== model)
-        .map(([m, r]) => ({
-          model: m,
-          content: r.content,
-        }));
-
-      const request: EvaluationRequest = {
-        userQuestion,
-        currentResponse: content,
-        currentModel: model,
-        otherResponses,
-      };
-
-      console.log(`[Evaluation] 📡 Calling evaluation API for ${model}...`);
-      
-      evaluatedModelsRef.current.add(model);
-      
-      evaluateResponse(request, evalModel)
-        .then((evaluation) => {
-          console.log(`[Evaluation] ✅ Received evaluation for ${model}:`, evaluation);
-          
-          // Cache result
-          evaluationCacheRef.current.set(cacheKey, evaluation);
-
-          setState((prev) => {
-            const newEvaluations = new Map(prev.evaluations);
-            newEvaluations.set(model, evaluation);
-            const newLoading = new Set(prev.loading);
-            newLoading.delete(model);
-            const newErrors = new Map(prev.errors);
-            newErrors.delete(model);
-            return {
-              ...prev,
-              evaluations: newEvaluations,
-              loading: newLoading,
-              errors: newErrors,
-            };
-          });
-        })
-        .catch((error) => {
-          console.error(`[Evaluation] Error evaluating ${model}:`, error);
-          
-          // Remove from ref on error so we can retry
+        responsesToEvaluate.forEach(({ model }) => {
+          newLoading.delete(model);
+          newErrors.set(model, String(error));
           evaluatedModelsRef.current.delete(model);
-          
-          setState((prev) => {
-            const newLoading = new Set(prev.loading);
-            newLoading.delete(model);
-            const newErrors = new Map(prev.errors);
-            newErrors.set(model, String(error));
-            return {
-              ...prev,
-              loading: newLoading,
-              errors: newErrors,
-            };
-          });
         });
+
+        return {
+          ...prev,
+          loading: newLoading,
+          errors: newErrors,
+        };
+      });
+    }
+  }, [userQuestion, responses, evalModel]);
+
+  // Batch highlight analysis for all models (single API call)
+  const analyzeAllHighlights = useCallback(async () => {
+    console.log("[Evaluation] 🔘 Batch highlight analysis triggered for all models");
+    
+    if (responses.size === 0) {
+      console.log("[Evaluation] No responses to analyze");
+      return;
+    }
+
+    // Prepare batch request
+    const responsesToAnalyze = Array.from(responses.entries())
+      .filter(([_, r]) => r.content.trim().length > 0)
+      .map(([model, response]) => ({ model, content: response.content }));
+
+    console.log(`[Evaluation] 🚀 Batch highlight analysis starting for ${responsesToAnalyze.length} model(s):`, responsesToAnalyze.map(r => r.model));
+
+    // Set loading state for all models
+    setState((prev) => {
+      const newLoading = new Set(prev.loading);
+      responsesToAnalyze.forEach(({ model }) => {
+        newLoading.add(`${model}:highlights`);
+      });
+      return { ...prev, loading: newLoading };
     });
+
+    const request: BatchHighlightRequest = {
+      responses: responsesToAnalyze,
+    };
+
+    try {
+      console.log(`[Evaluation] 📡 Calling batch highlight analysis API...`);
+      const result = await analyzeAllHighlightsUtil(request, evalModel);
+      console.log(`[Evaluation] ✅ Received batch highlight analysis:`, result);
+
+      // Cache and update state for all highlights
+      setState((prev) => {
+        const newHighlights = new Map(prev.highlightAnalyses);
+        const newLoading = new Set(prev.loading);
+        const newErrors = new Map(prev.errors);
+
+        Object.entries(result.highlights).forEach(([model, analysis]) => {
+          // Cache result
+          const cacheKey = `${userQuestion}:${model}:highlights`;
+          highlightCacheRef.current.set(cacheKey, analysis);
+
+          newHighlights.set(model, analysis);
+          newLoading.delete(`${model}:highlights`);
+          newErrors.delete(`${model}:highlights`);
+        });
+
+        return {
+          ...prev,
+          highlightAnalyses: newHighlights,
+          loading: newLoading,
+          errors: newErrors,
+        };
+      });
+    } catch (error) {
+      console.error(`[Evaluation] Error in batch highlight analysis:`, error);
+      
+      // Clear loading state and set error for all models
+      setState((prev) => {
+        const newLoading = new Set(prev.loading);
+        const newErrors = new Map(prev.errors);
+
+        responsesToAnalyze.forEach(({ model }) => {
+          newLoading.delete(`${model}:highlights`);
+          newErrors.set(`${model}:highlights`, String(error));
+        });
+
+        return {
+          ...prev,
+          loading: newLoading,
+          errors: newErrors,
+        };
+      });
+    }
   }, [userQuestion, responses, evalModel]);
 
   // Check if any evaluation is in progress
@@ -497,6 +565,7 @@ export function useResponseEvaluation(
     errors: state.errors,
     evaluateResponse: evaluateSingleResponse,
     analyzeHighlights: analyzeHighlightsForModel,
+    analyzeAllHighlights,
     reEvaluate,
     evaluateAll,
     isEvaluating: (model: string) => state.loading.has(model),
