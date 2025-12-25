@@ -369,42 +369,6 @@ ollamalens/
 
 ---
 
-## 🧪 Development Status
-
-### ✅ Completed Features
-
-- ✅ Multi-model side-by-side comparison
-- ✅ Multi-modal support (text, images, files)
-- ✅ Response evaluation with AI-powered scoring
-- ✅ Highlight analysis for response differences
-- ✅ Text-to-Speech with Piper TTS and Web Speech API
-- ✅ Chat history with IndexedDB storage
-- ✅ Export/Import chat data (JSON)
-- ✅ Progressive Web App (PWA) with offline support
-- ✅ Dark/Light theme with system detection
-- ✅ Responsive design for all devices
-- ✅ Model auto-discovery from Ollama
-- ✅ Copy responses to clipboard
-- ✅ Individual response regeneration
-
-### 🚧 In Progress
-
-- 🚧 Judge LLM system design
-- 🚧 Advanced evaluation criteria customization
-- 🚧 Settings panel for customization
-
-### 📋 Planned
-
-- 📋 Model chaining and workflows
-- 📋 Prompt library and templates
-- 📋 Analytics dashboard
-- 📋 Plugin system
-- 📋 Cloud model integrations
-- 📋 Collaboration features
-- 📋 Advanced search
-
----
-
 ## 🗄️ Storage & Privacy
 
 ### Local-First Architecture
